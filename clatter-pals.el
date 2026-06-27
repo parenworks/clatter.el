@@ -11,8 +11,8 @@
 ;;
 ;; - Pals (friends): their nick is highlighted with the `clatter-pal'
 ;;   face wherever it appears, so you never miss them.
-;; - Fools: their messages are muted (suppressed) much like the ignore
-;;   list, but kept in a separate, easily toggled list.
+;; - Fools: their messages are dimmed and can be hidden, much like the
+;;   ignore list, but kept in a separate, easily toggled list.
 ;;
 ;; Both are matched case-insensitively and managed with the /pal,
 ;; /unpal, /pals, /fool, /unfool and /fools commands.
@@ -46,11 +46,22 @@ commands.  Matched case-insensitively."
                                (string :tag "Network"))))
   :group 'clatter)
 
+(defcustom clatter-fools-visible nil
+  "When non-nil, show fool messages instead of hiding them.
+Fool messages are still displayed with the `clatter-fool' face."
+  :type 'boolean
+  :group 'clatter)
+
 ;; --- Faces ---
 
 (defface clatter-pal
   '((t :foreground "#42be65" :weight bold))
   "Face used to highlight a pal's nick."
+  :group 'clatter)
+
+(defface clatter-fool
+  '((t :inherit shadow))
+  "Face used to dim messages from fools."
   :group 'clatter)
 
 ;; --- Membership (pure) ---
@@ -82,6 +93,14 @@ Also matches against NETWORK if given.
 True when SENDER is on the ignore list or the fools list."
   (or (clatter-ignored-p (clatter-join-prefix sender) network)
       (clatter-fool-p (clatter-prefix-nick sender) network)))
+
+(defun clatter-sender-invisibility (sender &optional network)
+  "Return the invisibility category for messages from SENDER.
+Ignored senders use `muted'.  Fools use `clatter-fool' so their
+visibility can be toggled independently."
+  (cond
+   ((clatter-ignored-p (clatter-join-prefix sender) network) 'muted)
+   ((clatter-fool-p (clatter-prefix-nick sender) network) 'clatter-fool)))
 
 ;; --- Pure add/remove helpers ---
 

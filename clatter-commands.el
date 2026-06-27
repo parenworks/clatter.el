@@ -363,22 +363,27 @@ With `none', clear all suppressions."
     (cond
      ((null types)
       (message "Suppressed: %s"
-               (if buffer-invisibility-spec
+               (if (remove 'clatter-fool buffer-invisibility-spec)
                    (mapconcat #'symbol-name
-                              buffer-invisibility-spec " ")
+                              (remove 'clatter-fool buffer-invisibility-spec)
+                              " ")
                  "none")))
      ((string-equal (car types) "all")
-      (setq buffer-invisibility-spec (list 'join 'part 'quit 'nick 'mode 'away 'muted)))
+      (setq buffer-invisibility-spec (list 'join 'part 'quit 'nick 'mode 'away 'muted))
+      (clatter--apply-current-buffer-fools-visibility))
      ((string-equal (car types) "none")
-      (setq buffer-invisibility-spec nil))
+      (setq buffer-invisibility-spec nil)
+      (clatter--apply-current-buffer-fools-visibility))
      (t
       (dolist (type types)
         (let ((sym (intern type)))
           (unless (memq sym buffer-invisibility-spec)
             (push sym buffer-invisibility-spec))))
+      (clatter--apply-current-buffer-fools-visibility)
       (message "Suppressed: %s"
                (mapconcat #'symbol-name
-                          buffer-invisibility-spec " "))))))
+                          (remove 'clatter-fool buffer-invisibility-spec)
+                          " "))))))
 
 (defun clatter-cmd-unsuppress (args)
   "Stop suppressing the message types listed in ARGS (\"TYPE...\")."
@@ -386,10 +391,12 @@ With `none', clear all suppressions."
     (dolist (type types)
       (setq buffer-invisibility-spec
             (delq (intern type) buffer-invisibility-spec)))
+    (clatter--apply-current-buffer-fools-visibility)
     (message "Suppressed: %s"
-             (if buffer-invisibility-spec
+             (if (remove 'clatter-fool buffer-invisibility-spec)
                  (mapconcat #'symbol-name
-                            buffer-invisibility-spec " ")
+                            (remove 'clatter-fool buffer-invisibility-spec)
+                            " ")
                "none"))))
 
 ;; --- Register all commands ---
@@ -549,6 +556,36 @@ Messages from a fool are muted (hidden)."
        (format "Fools: %s" (string-join clatter-fools ", "))
      "Fools list is empty")))
 
+(defun clatter--apply-current-buffer-fools-visibility ()
+  "Apply `clatter-fools-visible' to the current buffer."
+  (if clatter-fools-visible
+      (remove-from-invisibility-spec 'clatter-fool)
+    (add-to-invisibility-spec 'clatter-fool)))
+
+(defun clatter--apply-fools-visibility ()
+  "Apply `clatter-fools-visible' to every live clatter buffer."
+  (dolist (buf (buffer-list))
+    (with-current-buffer buf
+      (when (derived-mode-p 'clatter-mode)
+        (clatter--apply-current-buffer-fools-visibility)
+        (force-window-update buf)))))
+
+(defun clatter-toggle-fools (&optional arg)
+  "Toggle visibility of messages from `clatter-fools'.
+With prefix ARG, show fools when ARG is positive and hide them otherwise."
+  (interactive "P")
+  (setq clatter-fools-visible
+        (if arg
+            (> (prefix-numeric-value arg) 0)
+          (not clatter-fools-visible)))
+  (clatter--apply-fools-visibility)
+  (message "Fools are now %s"
+           (if clatter-fools-visible "shown" "hidden")))
+
+(defun clatter-cmd-toggle-fools (_args)
+  "Toggle whether fool messages are shown or hidden."
+  (clatter-toggle-fools))
+
 (defun clatter-cmd-close (_args)
   "Close (kill) the current clatter buffer.
 For channels, sends PART first."
@@ -576,6 +613,7 @@ For channels, sends PART first."
 (clatter-defcommand "fool" #'clatter-cmd-fool)
 (clatter-defcommand "unfool" #'clatter-cmd-unfool)
 (clatter-defcommand "fools" #'clatter-cmd-fools)
+(clatter-defcommand "toggle-fools" #'clatter-cmd-toggle-fools "fools-toggle")
 
 (defun clatter-cmd-list (args)
   "Open the interactive channel list browser, filtered by ARGS."

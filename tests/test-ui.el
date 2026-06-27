@@ -4,7 +4,89 @@
 
 (require 'test-helper)
 (require 'clatter-ui)
+(require 'clatter-commands)
 (require 'clatter-nicklist)
+
+;; --- Fool visibility ---
+
+(ert-deftest clatter-test-fool-message-gets-dim-face ()
+  "Messages with the fool invisibility category get `clatter-fool'."
+  (with-temp-buffer
+    (clatter--insert-message (current-buffer) "<fool> no thanks" t nil nil 'clatter-fool)
+    (should (eq (get-text-property (point-min) 'invisible) 'clatter-fool))
+    (should (memq 'clatter-fool (ensure-list (get-text-property (point-min) 'face))))))
+
+(ert-deftest clatter-test-fool-face-takes-priority ()
+  "The `clatter-fool' face is prepended to existing faces."
+  (with-temp-buffer
+    (clatter--insert-message
+     (current-buffer)
+     (propertize "<fool> no thanks" 'face 'clatter-notice)
+     t nil nil 'clatter-fool)
+    (should (equal (ensure-list (get-text-property (point-min) 'face))
+                   '(clatter-fool clatter-notice)))))
+
+(ert-deftest clatter-test-fool-visibility-seeds-buffer-invisibility ()
+  "New clatter buffers hide fools unless `clatter-fools-visible' is non-nil."
+  (let ((clatter-fools-visible nil))
+    (with-temp-buffer
+      (clatter-mode)
+      (clatter-ui-setup-buffer (current-buffer))
+      (should (memq 'clatter-fool buffer-invisibility-spec))))
+  (let ((clatter-fools-visible t))
+    (with-temp-buffer
+      (clatter-mode)
+      (clatter-ui-setup-buffer (current-buffer))
+      (should-not (memq 'clatter-fool buffer-invisibility-spec)))))
+
+(ert-deftest clatter-test-toggle-fools-updates-existing-buffer ()
+  "Toggling fool visibility updates existing clatter buffers."
+  (let ((old clatter-fools-visible))
+    (unwind-protect
+        (with-temp-buffer
+          (clatter-mode)
+          (setq buffer-invisibility-spec '(clatter-fool muted))
+          (clatter-toggle-fools 1)
+          (should clatter-fools-visible)
+          (should-not (memq 'clatter-fool buffer-invisibility-spec))
+          (clatter-toggle-fools -1)
+          (should-not clatter-fools-visible)
+          (should (memq 'clatter-fool buffer-invisibility-spec)))
+      (setq clatter-fools-visible old))))
+
+(ert-deftest clatter-test-suppress-preserves-fool-visibility ()
+  "Generic suppression commands keep fool visibility independent."
+  (let ((clatter-fools-visible nil))
+    (with-temp-buffer
+      (clatter-mode)
+      (setq buffer-invisibility-spec '(clatter-fool muted))
+      (clatter-cmd-suppress "none")
+      (should (equal buffer-invisibility-spec '(clatter-fool)))
+      (clatter-cmd-suppress "all")
+      (should (memq 'clatter-fool buffer-invisibility-spec))))
+  (let ((clatter-fools-visible t))
+    (with-temp-buffer
+      (clatter-mode)
+      (setq buffer-invisibility-spec '(clatter-fool muted))
+      (clatter-cmd-suppress "none")
+      (should-not (memq 'clatter-fool buffer-invisibility-spec))
+      (clatter-cmd-suppress "all")
+      (should-not (memq 'clatter-fool buffer-invisibility-spec)))))
+
+(ert-deftest clatter-test-suppress-cannot-desync-fool-visibility ()
+  "Explicit generic suppressions cannot override the fool toggle state."
+  (let ((clatter-fools-visible nil))
+    (with-temp-buffer
+      (clatter-mode)
+      (setq buffer-invisibility-spec '(clatter-fool muted))
+      (clatter-cmd-unsuppress "clatter-fool")
+      (should (memq 'clatter-fool buffer-invisibility-spec))))
+  (let ((clatter-fools-visible t))
+    (with-temp-buffer
+      (clatter-mode)
+      (setq buffer-invisibility-spec '(muted))
+      (clatter-cmd-suppress "clatter-fool")
+      (should-not (memq 'clatter-fool buffer-invisibility-spec)))))
 
 ;; --- Channel-at-point detection ---
 
