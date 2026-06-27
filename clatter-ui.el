@@ -195,6 +195,12 @@ append at the bottom like a traditional IRC client."
                    (wrap-prefix (make-string wrap-col ?\s))
                    (start (point)))
               (insert text "\n")
+              (when (and clatter-fill-column
+                         (> clatter-fill-column wrap-col))
+                (let ((fill-column clatter-fill-column)
+                      (fill-prefix wrap-prefix)
+                      (adaptive-fill-mode nil))
+                  (fill-region start (1- (point)))))
               (when ts-str
                 (let ((ov (make-overlay start (1+ start) nil t)))
                   (overlay-put ov 'before-string

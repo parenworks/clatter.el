@@ -6,6 +6,21 @@
 (require 'clatter-ui)
 (require 'clatter-nicklist)
 
+;; --- Message filling ---
+
+(ert-deftest clatter-test-insert-message-fills-at-fill-column ()
+  "Inserted messages are hard-wrapped at `clatter-fill-column'."
+  (let ((clatter-fill-column 40)
+        (clatter-nick-column-width 7))
+    (with-temp-buffer
+      (clatter--insert-message
+       (current-buffer)
+       "<alice> this is a long message that should wrap around the configured fill column"
+       t)
+      (should
+       (equal (buffer-string)
+              "<alice> this is a long message that\n        should wrap around the\n        configured fill column\n")))))
+
 ;; --- Channel-at-point detection ---
 
 (ert-deftest clatter-test-channel-at-point-hash ()
