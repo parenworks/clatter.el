@@ -596,6 +596,20 @@ If the input contains multiple lines and exceeds
        (equal (point-marker) clatter--prompt-marker)
        (goto-char clatter--input-marker)))
 
+(defun clatter-tab ()
+  "Complete at the prompt, or move to the next button in message history."
+  (interactive)
+  (if (and clatter--input-marker (>= (point) (marker-position clatter--input-marker)))
+      (completion-at-point)
+    (forward-button 1)))
+
+(defun clatter-backtab ()
+  "Complete at the prompt, or move to the previous button in message history."
+  (interactive)
+  (if (and clatter--input-marker (>= (point) (marker-position clatter--input-marker)))
+      (completion-at-point)
+    (backward-button 1)))
+
 ;; Forward declaration
 (declare-function clatter-execute-command "clatter-commands")
 
@@ -1453,7 +1467,8 @@ Requires the server to support the message-tags capability."
   (add-hook 'clatter-mode-hook #'clatter-ui--setup-eldoc)
   ;; Key bindings for input
   (define-key clatter-mode-map (kbd "RET") #'clatter-send-input)
-  (define-key clatter-mode-map (kbd "TAB") #'completion-at-point)
+  (define-key clatter-mode-map (kbd "TAB") #'clatter-tab)
+  (define-key clatter-mode-map (kbd "<backtab>") #'clatter-backtab)
   (define-key clatter-mode-map (kbd "M-p") #'clatter-set-prev-input)
   (define-key clatter-mode-map (kbd "M-n") #'clatter-set-next-input)
   (define-key clatter-mode-map (kbd "C-a") #'clatter-bol)
