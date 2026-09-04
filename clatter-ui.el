@@ -791,17 +791,18 @@ TOOLTIP, when non-nil, becomes the stamp's `help-echo'."
                            'help-echo tooltip)))
     (overlay-put ov 'help-echo tooltip)
     (if (eq clatter-timestamp-side 'inline)
-        ;; Stamp sits on the message's last row; one that doesn't fit is
-        ;; dropped.  No fresh-row fallback: an overlay-string row has no
-        ;; buffer position of its own, so point can't land on it and
-        ;; vertical motion gets trapped.  Keep the raw stamp on the
-        ;; overlay so `clatter--timestamp-inline-refresh-at' can re-fit.
+        ;; Stamp sits on the message's last row via after-string at the
+        ;; last text char — not the newline, whose before-string wraps
+        ;; onto the next buffer line.  A stamp that doesn't fit is
+        ;; dropped.  Keep the raw stamp on the overlay so
+        ;; `clatter--timestamp-inline-refresh-at' can re-fit.
         (progn
           (overlay-put ov 'clatter-timestamp-str ts-str)
           (overlay-put ov 'clatter-timestamp-tooltip tooltip)
-          (overlay-put ov 'before-string
+          (overlay-put ov 'before-string nil)
+          (overlay-put ov 'after-string
                        (unless (clatter--timestamp-inline-break-p
-                                (overlay-start ov) ts-str)
+                                (overlay-end ov) ts-str)
                          (concat (propertize
                                   " " 'display
                                   `(space :align-to
@@ -809,6 +810,7 @@ TOOLTIP, when non-nil, becomes the stamp's `help-echo'."
                                  stamp))))
       ;; Apply 'default face after 'clatter-timestamp so no unwanted face
       ;; properties are inherited from text which might be at point.
+      (overlay-put ov 'after-string nil)
       (overlay-put ov 'before-string
                    (propertize " " 'display
                                `((margin ,(if (eq clatter-timestamp-side 'left)
@@ -823,7 +825,8 @@ appends lengthen it, visibility toggles change its displayed width — so
 apply the stamp again: the fit check drops or restores it, the same
 rule as at insert time."
   (when (eq clatter-timestamp-side 'inline)
-    (dolist (ov (overlays-at eol))
+    (dolist (ov (overlays-in (max (point-min) (1- eol))
+                             (min (point-max) (1+ eol))))
       (when (overlay-get ov 'clatter-timestamp)
         (when-let* ((ts-str (overlay-get ov 'clatter-timestamp-str)))
           (clatter--timestamp-overlay-apply
@@ -957,14 +960,19 @@ append at the bottom like a traditional IRC client."
                         (adaptive-fill-mode nil))
                     (fill-region start (1- (point))))))
               (when ts-str
-                (let ((ov (if (eq clatter-timestamp-side 'inline)
-                              ;; Covers the final newline; rear stays put so
-                              ;; a message inserted below can't extend it.
-                              (make-overlay (1- (point)) (point) nil t)
-                            (make-overlay start (1+ start) nil t))))
-                  (clatter--timestamp-overlay-apply ov ts-str ts-tooltip-str)
-                  (overlay-put ov 'clatter-timestamp t)
-                  (overlay-put ov 'invisible invisible)))
+                (let* ((eol (1- (point)))
+                       (ov (if (eq clatter-timestamp-side 'inline)
+                               ;; Last text char, not the newline: after-string
+                               ;; at overlay-end stays on this line.  Rear
+                               ;; advances so compact appends keep the stamp
+                               ;; at EOL without covering the next message.
+                               (and (> eol start)
+                                    (make-overlay (1- eol) eol nil t t))
+                             (make-overlay start (1+ start) nil t))))
+                  (when ov
+                    (clatter--timestamp-overlay-apply ov ts-str ts-tooltip-str)
+                    (overlay-put ov 'clatter-timestamp t)
+                    (overlay-put ov 'invisible invisible))))
               (add-text-properties start (point) line-props)
               (when msg-props
                 (add-text-properties start (point) msg-props))
@@ -1585,7 +1593,8 @@ shared layout coherent when `buffer-invisibility-spec' changes, notably when
                                       '(display nil))))
           (dolist (overlay (append (overlays-at group-start)
                                    (and newline-position
-                                        (overlays-at newline-position))))
+                                        (overlays-in (1- newline-position)
+                                                     (1+ newline-position)))))
             (when (overlay-get overlay 'clatter-timestamp)
               (overlay-put
                overlay 'invisible
@@ -1745,7 +1754,8 @@ INVISIBLE categories so smart-hidden and visible actions can share a group."
                                    'invisible
                                    (clatter--compact-system-visibility invisible))
                 (dolist (overlay (append (overlays-at start)
-                                         (overlays-at end)))
+                                         (overlays-in (max (point-min) (1- end))
+                                                      (min (point-max) (1+ end)))))
                   (when (overlay-get overlay 'clatter-timestamp)
                     (overlay-put overlay 'invisible invisible)
                     (overlay-put overlay 'clatter-compact-system-invisible

@@ -628,10 +628,10 @@ always showing fool messages."
           (clatter-insert-privmsg (current-buffer) "alice" "hello" conn time)
           (let ((ov (clatter-test--timestamp-overlay)))
             (should ov)
-            (should-not (overlay-get ov 'after-string))
-            (let* ((before (overlay-get ov 'before-string))
-                   (display (get-text-property 0 'display before)))
-              (should (string-match-p "10:12" before))
+            (should-not (overlay-get ov 'before-string))
+            (let* ((after (overlay-get ov 'after-string))
+                   (display (get-text-property 0 'display after)))
+              (should (string-match-p "10:12" after))
               (should (eq (car display) 'space))
               (should (equal (plist-get (cdr display) :align-to) '(- right 5))))))
       (clatter-test-cleanup))))
@@ -657,6 +657,50 @@ always showing fool messages."
             (should-not (overlay-get ov 'before-string))
             (should-not (overlay-get ov 'after-string))
             (should (equal (overlay-get ov 'help-echo) "10:12:00"))))
+      (clatter-test-cleanup))))
+
+(ert-deftest clatter-test-timestamp-margin-clears-inline-after-string ()
+  "Reapplying a margin stamp drops a leftover inline after-string."
+  (let ((clatter-timestamp-side 'inline)
+        (clatter-timestamp-format "%H:%M")
+        (clatter-timestamp-only-if-changed nil)
+        (conn (clatter-test-make-connection))
+        (time (encode-time 0 12 10 1 1 2026)))
+    (unwind-protect
+        (with-temp-buffer
+          (clatter-insert-privmsg (current-buffer) "alice" "hello" conn time)
+          (let ((ov (clatter-test--timestamp-overlay)))
+            (should (overlay-get ov 'after-string))
+            (let ((clatter-timestamp-side 'right))
+              (clatter--timestamp-overlay-apply ov "10:12")
+              (should-not (overlay-get ov 'after-string))
+              (should (overlay-get ov 'before-string)))))
+      (clatter-test-cleanup))))
+
+(ert-deftest clatter-test-timestamp-inline-stays-before-newline ()
+  "Inline stamp overlay ends at the newline, not on the next message."
+  (let ((clatter-timestamp-side 'inline)
+        (clatter-timestamp-format "%H:%M")
+        (clatter-timestamp-only-if-changed nil)
+        (conn (clatter-test-make-connection))
+        (t1 (encode-time 0 24 9 28 8 2026))
+        (t2 (encode-time 0 29 9 28 8 2026)))
+    (unwind-protect
+        (with-temp-buffer
+          (clatter-mode)
+          (setq-local word-wrap t)
+          (clatter-insert-privmsg (current-buffer) "alice" "hello" conn t1)
+          (clatter-insert-privmsg (current-buffer) "bob" "there" conn t2)
+          (let ((ovs (cl-remove-if-not
+                      (lambda (overlay)
+                        (overlay-get overlay 'clatter-timestamp))
+                      (overlays-in (point-min) (point-max)))))
+            (should (= (length ovs) 2))
+            (dolist (ov ovs)
+              (should-not (eq (char-after (overlay-start ov)) ?\n))
+              (should (eq (char-after (overlay-end ov)) ?\n))
+              (should (overlay-get ov 'after-string))
+              (should-not (overlay-get ov 'before-string)))))
       (clatter-test-cleanup))))
 
 (ert-deftest clatter-test-timestamp-inline-stamps-system ()
@@ -686,19 +730,19 @@ always showing fool messages."
            buffer 'join '(:nick "alice" :channel "#test") nil)
           (with-current-buffer buffer
             (should (overlay-get (clatter-test--timestamp-overlay)
-                                 'before-string)))
+                                 'after-string)))
           ;; A short append still fits: the stamp survives.
           (clatter--insert-system-event
            buffer 'join '(:nick "bob" :channel "#test") nil)
           (with-current-buffer buffer
             (should (overlay-get (clatter-test--timestamp-overlay)
-                                 'before-string)))
+                                 'after-string)))
           ;; Growing past the body width drops it, like a long message.
           (clatter--insert-system-event
            buffer 'join (list :nick long-nick :channel "#test") nil)
           (with-current-buffer buffer
             (should-not (overlay-get (clatter-test--timestamp-overlay)
-                                     'before-string))))))))
+                                     'after-string))))))))
 
 (defun clatter-test--divider-positions ()
   "Return buffer positions of minute-divider lines."
