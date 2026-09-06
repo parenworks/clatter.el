@@ -72,6 +72,7 @@ calling it:
 | soju bouncer fan-out | =clatter-soju-enabled=        | on      |
 | Channel logging      | =clatter-log-enable=          | off     |
 | URL title preview    | =clatter-url-preview-enable=  | off     |
+| All-channels feed    | =clatter-feed-enabled=        | off     |
 
 ** Quick Start
 
@@ -194,6 +195,9 @@ Every optional extra enabled at once, as a starting point to trim down:
   ;; Off by default - turn them on.
   (clatter-log-enable t)                  ; log to ~/.emacs.d/clatter/logs/
   (clatter-url-preview-enable t)          ; fetch and show URL titles
+  (clatter-feed-enabled t)                ; *clatter-feed* live inbox of all channels
+  (clatter-feed-hide-visible t)           ; hide sources you already have open
+  (clatter-feed-hide-channels '("#bots")) ; denylist, all networks
   (clatter-image-enable t)                ; inline images (GUI frames only)
   (clatter-rawlog-enabled t)              ; raw protocol inspector buffers
   ;; Tweaks to the on-by-default features.
@@ -208,6 +212,8 @@ Every optional extra enabled at once, as a starting point to trim down:
   (clatter-typing-indicator-location 'input-separator)
   (clatter-track-shorten 4)                ; e.g. #systemcrafters -> #syst
   (clatter-timestamp-format "%H:%M:%S")
+  (clatter-timestamp-side 'inline)         ; end of line; also left/right/divider
+  (clatter-timestamp-interval 5)           ; minute marks every 5 minutes
   (clatter-sender-format "[%nick]")        ; nick prefix, e.g. [alice] hey
   :config
   (require 'gnutls)
@@ -230,7 +236,7 @@ Every optional extra enabled at once, as a starting point to trim down:
 | STS - auto-upgrade plaintext to TLS                  | =clatter-sts=          | =clatter-sts-enable= (on)                     |
 | SOCKS5 / Tor proxy, remote DNS, .onion               | =clatter-socks=        | =:proxy= / =:tor t= per network               |
 | soju bouncer fan-out, one buffer set per network     | =clatter-soju=         | =:bouncer t= + =clatter-soju-enabled= (on)    |
-| CHATHISTORY backlog on join and reconnect            | =clatter-chathistory=  | =clatter-chathistory-enabled= (on)            |
+| CHATHISTORY backlog; window-wide playback dividers   | =clatter-chathistory=  | =clatter-chathistory-enabled= (on)            |
 | Read markers (MARKREAD) synced across clients        | =clatter-read-marker=  | =clatter-read-marker-enabled= (on)            |
 | Mode-line activity tracking, unread counts, mentions | =clatter-track=        | =clatter-track-enabled= (on)                  |
 | Desktop notifications with per-channel rules         | =clatter-notify=       | =clatter-notify-enabled= (on)                 |
@@ -244,6 +250,8 @@ Every optional extra enabled at once, as a starting point to trim down:
 | Reply threads and emoji reactions (draft/react)      | =clatter-ui=           | always (=/reply=, =/react=)                   |
 | Channel list browser                                 | =clatter-list=         | =/list=                                       |
 | Nick list sidebar                                    | =clatter-nicklist=     | =clatter-nicklist-toggle=                     |
+| All-channels feed; hide visible or listed            | =clatter-feed=         | =clatter-feed-enabled= (off)                  |
+| Inline / divider timestamp sides, mark interval       | =clatter-ui=           | =clatter-timestamp-side=, =clatter-timestamp-interval= |
 | Channel logging to file, daily rotation              | =clatter-log=          | =clatter-log-enable= (off)                    |
 | Full-text search across logs                         | =clatter-search=       | =/search= (requires logging)                  |
 | URL title preview                                    | =clatter-url-preview=  | =clatter-url-preview-enable= (off)            |

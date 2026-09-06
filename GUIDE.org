@@ -1153,7 +1153,7 @@ explicit call from your configuration.
 | =clatter-smart.el=       | Adaptive noise filtering                 | =clatter-smart-enabled= (on)                        |
 | =clatter-pals.el=        | Pals, fools and visibility               | =clatter-pals= / =clatter-fools=                    |
 | =clatter-nicklist.el=    | Channel member sidebar                   | =clatter-nicklist-toggle=                           |
-| =clatter-feed.el=        | Cross-network message feed               | =clatter-feed-enabled= (off)                        |
+| =clatter-feed.el=        | All-channels message feed                | =clatter-feed-enabled= (off)                        |
 | =clatter-evil.el=        | Evil bindings for special buffers        | automatic when evil is loaded                       |
 | =clatter-list.el=        | Channel list browser                     | =/list=                                             |
 | =clatter-track.el=       | Mode-line activity tracking              | =clatter-track-enabled= (on)                        |
