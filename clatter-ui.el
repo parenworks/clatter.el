@@ -3091,18 +3091,22 @@ otherwise (the process filter may run in any buffer, so don't rely on
       (clatter-insert-system buf line))))
 
 (defun clatter-ui--on-disconnect (network-id event)
-  "Clear channel state and show disconnect EVENT in NETWORK-ID buffers."
+  "Clear channel state; show disconnect EVENT in NETWORK-ID server buffer."
   (clatter-ui--clear-pending-self-echoes network-id)
   (dolist (buf (clatter-channel-buffers network-id))
     (clatter-nick-clear buf))
-  (dolist (buf (clatter-all-buffers network-id))
-    (when (buffer-live-p buf)
-      (clatter-insert-error buf
-                            (format "Disconnected: %s" (string-trim event))))))
+  ;; One notice in the server buffer, not one line per channel/query
+  ;; buffer: a reconnect cycle would otherwise flood every buffer.
+  (when-let* ((buf (clatter-get-server-buffer network-id)))
+    (clatter-insert-error buf
+                          (format "Disconnected: %s" (string-trim event)))))
 
 (defun clatter-ui--on-reconnect (network-id delay attempt)
-  "Handle reconnect scheduling (DELAY, ATTEMPT) for UI in NETWORK-ID buffers."
-  (dolist (buf (clatter-all-buffers network-id))
+  "Note reconnect scheduling (DELAY, ATTEMPT) in NETWORK-ID server buffer."
+  ;; Auto-reconnects are background activity: log them in the server buffer
+  ;; (the mode-line "(reconnect Ns)" fragment shows live countdown status),
+  ;; never one line in every channel/query buffer.
+  (when-let* ((buf (clatter-get-server-buffer network-id)))
     (clatter-insert-system buf
                            (format "Reconnecting in %ds (attempt %d)..."
                                    delay attempt))))

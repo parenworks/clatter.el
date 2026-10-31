@@ -362,7 +362,11 @@ Keep network configuration, buffers, and displayed history intact."
       ;; so a later disconnect starts fresh; the local REASON binding carries
       ;; the value to the UI hook below without re-polluting the slot.
       (let ((reason (clatter--disconnect-message conn event)))
-        (message "[clatter] Disconnected from %s: %s" network-id reason)
+        ;; The first disconnect of a cycle deserves a notice; during a
+        ;; backoff cycle the mode-line "(reconnect Ns)" indicator is the
+        ;; unobtrusive status, so keep the echo area quiet.
+        (when (= (clatter-connection-reconnect-attempts conn) 0)
+          (message "[clatter] Disconnected from %s: %s" network-id reason))
         (setf (clatter-connection-state conn) :disconnected)
         (setf (clatter-connection-process conn) nil)
         (clatter--clear-session-data conn)
@@ -526,6 +530,10 @@ network configuration."
       (clatter--begin-registration conn config))))
 
 ;; --- Connect ---
+(defvar clatter--in-auto-retry nil
+  "Dynamically bound to t while `clatter-connect' runs from a reconnect timer.
+An auto-retry continues the current backoff cycle instead of starting a
+fresh one, so `clatter-connect' leaves `reconnect-attempts' alone.")
 
 (defun clatter-connect (network-id &rest args)
   "Connect to IRC network NETWORK-ID.
@@ -625,11 +633,19 @@ ARGS are keyword arguments that override `clatter-networks' config:
         (setf (clatter-connection-connect-overrides conn) args)
         (setf (clatter-connection-nick conn) nick)
         (setf (clatter-connection-desired-nick conn) nick)
-        ;; A fresh connect (manual or scheduled) re-enables auto-reconnect and
-        ;; clears any prior disable reason, so the give-up/revive bookkeeping
-        ;; starts from a clean slate.
-        (setf (clatter-connection-reconnect-enabled conn) t)
-        (setf (clatter-connection-reconnect-disabled-reason conn) nil)
+        ;; An explicit connect (manual or fan-out) starts a fresh cycle:
+        ;; re-enable auto-reconnect, clear any give-up state, and reset the
+        ;; backoff counters.  Without the attempt reset, connecting after a
+        ;; give-up would hit the cap again on its first failure and give up
+        ;; immediately -- the reported "no reconnect after the 10th try" bug.
+        ;; A timer-driven auto-retry keeps the current count so the backoff
+        ;; cycle and give-up cap keep advancing.
+        (unless clatter--in-auto-retry
+          (setf (clatter-connection-reconnect-enabled conn) t)
+          (setf (clatter-connection-reconnect-disabled-reason conn) nil)
+          (setf (clatter-connection-reconnect-attempts conn) 0)
+          (setf (clatter-connection-regain-kill-count conn) 0)
+          (setf (clatter-connection-regain-kill-time conn) nil))
         (setf (clatter-connection-cap-negotiating conn) nil)
         (setf (clatter-connection-cap-enabled conn) nil)
         (setf (clatter-connection-cap-string conn) nil)
@@ -638,8 +654,9 @@ ARGS are keyword arguments that override `clatter-networks' config:
         (setf (clatter-connection-ping-sent-time conn) nil)
         (setf (clatter-connection-away-p conn) nil)
 
-        (message "[clatter] Connecting to %s:%d%s..."
-                 server port (if use-tls " (TLS)" ""))
+        (unless clatter--in-auto-retry
+          (message "[clatter] Connecting to %s:%d%s..."
+                   server port (if use-tls " (TLS)" "")))
         (clatter--watchdog "CONNECT %s %s:%d tls=%s" network-id server port use-tls)
 
         (condition-case err
@@ -696,7 +713,13 @@ ARGS are keyword arguments that override `clatter-networks' config:
           (error
            (clatter--watchdog "CONNECT-FAIL %s %s" network-id (error-message-string err))
            (setf (clatter-connection-state conn) :disconnected)
-           (message "[clatter] Connection failed: %s" (error-message-string err))
+           (unless clatter--in-auto-retry
+             (message "[clatter] Connection failed: %s" (error-message-string err)))
+           ;; A synchronous `make-network-process' failure (bad host,
+           ;; immediate DNS failure) never reaches the sentinel, so
+           ;; schedule the retry here or the connection stays dead.
+           (when (clatter-connection-reconnect-enabled conn)
+             (clatter--schedule-reconnect conn))
            nil))))))
 
 ;; --- Registration ---
@@ -836,8 +859,11 @@ for the give-up cap."
                          network-id
                          (or (clatter-connection-regain-kill-count conn) 0)
                          delay))
-    (message "[clatter] Reconnecting to %s in %ds (attempt %d)..."
-             network-id delay (1+ attempts))
+    ;; One echo-area notice per cycle (the first attempt); the mode-line
+    ;; "(reconnect Ns)" fragment tracks later attempts unobtrusively.
+    (when (= attempts 0)
+      (message "[clatter] Reconnecting to %s in %ds..."
+               network-id delay))
     (run-hook-with-args 'clatter-reconnect-hook network-id delay (1+ attempts))
     (setf (clatter-connection-reconnect-attempts conn) (1+ attempts))
     (let (timer)
@@ -847,7 +873,8 @@ for the give-up cap."
              (lambda ()
                (when (eq timer (clatter-connection-reconnect-timer conn))
                  (setf (clatter-connection-reconnect-timer conn) nil)
-                 (apply #'clatter-connect network-id overrides)))))
+                 (let ((clatter--in-auto-retry t))
+                   (apply #'clatter-connect network-id overrides))))))
       (setf (clatter-connection-reconnect-timer conn) timer))))
 
 ;; --- Health Monitoring ---

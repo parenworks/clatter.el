@@ -1261,6 +1261,73 @@ attempt count is left as-is and auto-reconnect is disabled."
           (should-not (clatter-connection-reconnect-timer conn)))
       (clatter-test-cleanup))))
 
+(ert-deftest clatter-test-connect-resets-exhausted-reconnect-cycle ()
+  "An explicit `clatter-connect' after a give-up starts a fresh retry cycle.
+Previously the attempt count was left at the cap, so the first failure of
+the new connection gave up immediately and every manual connect was a
+single shot (the reported \"no reconnect after the 10th try\" bug)."
+  (let* ((conn (clatter-test-make-connection "revive" "testnick"))
+         (clatter-reconnect-max-attempts 2)
+         (stored (list :server "irc.example" :nick "testnick" :tls nil))
+         (clatter-networks (list (cons "revive" stored)))
+         (procs nil))
+    (setf (clatter-connection-state conn) :disconnected
+          (clatter-connection-reconnect-enabled conn) nil
+          (clatter-connection-reconnect-disabled-reason conn) :max-attempts
+          (clatter-connection-reconnect-attempts conn) 2)
+    (unwind-protect
+        (cl-letf (((symbol-function 'make-network-process)
+                   (lambda (&rest _)
+                     (let ((p (make-pipe-process :name "clatter-test-revive" :noquery t)))
+                       (push p procs) p)))
+                  ((symbol-function 'run-at-time) (lambda (&rest _) 'fake-timer))
+                  ((symbol-function 'clatter--watchdog) (lambda (&rest _))))
+          (should (clatter-connect "revive"))
+          (should (clatter-connection-reconnect-enabled conn))
+          (should (eq (clatter-connection-reconnect-disabled-reason conn) nil))
+          (should (zerop (clatter-connection-reconnect-attempts conn)))
+          ;; Simulate the new attempt failing (sentinel sets :disconnected).
+          (setf (clatter-connection-state conn) :disconnected)
+          (clatter--schedule-reconnect conn)
+          (should (clatter-connection-reconnect-enabled conn))
+          (should (eq (clatter-connection-reconnect-timer conn) 'fake-timer))
+          (should (= (clatter-connection-reconnect-attempts conn) 1)))
+      (clatter-test-cleanup))))
+
+(ert-deftest clatter-test-auto-retry-continues-backoff-cycle ()
+  "A timer-driven retry keeps the current backoff cycle.
+If the auto-retry reset the attempt count, every attempt would restart
+the cycle at the initial delay and the give-up cap would never be
+reached (infinite 10s retry loop)."
+  (let* ((conn (clatter-test-make-connection "cycle" "testnick"))
+         (clatter-reconnect-max-attempts 3)
+         (stored (list :server "irc.example" :nick "testnick" :tls nil))
+         (clatter-networks (list (cons "cycle" stored)))
+         (callback nil))
+    (setf (clatter-connection-state conn) :disconnected
+          (clatter-connection-reconnect-attempts conn) 2
+          (clatter-connection-connect-overrides conn) nil)
+    (unwind-protect
+        (cl-letf (((symbol-function 'run-at-time)
+                   (lambda (_delay _repeat function)
+                     (setq callback function)
+                     'clatter-test-reconnect-timer))
+                  ((symbol-function 'make-network-process)
+                   (lambda (&rest _)
+                     (make-pipe-process :name "clatter-test-cycle" :noquery t)))
+                  ((symbol-function 'clatter--watchdog) (lambda (&rest _)))
+                  ((symbol-function 'message) (lambda (&rest _))))
+          (clatter--schedule-reconnect conn)
+          (should (eq (clatter-connection-reconnect-attempts conn) 3))
+          (funcall callback)
+          ;; The auto-retry must not have reset the cycle count.
+          (should (= (clatter-connection-reconnect-attempts conn) 3))
+          ;; And the next failure gives up, proving the cap still advances.
+          (setf (clatter-connection-state conn) :disconnected)
+          (clatter--schedule-reconnect conn)
+          (should-not (clatter-connection-reconnect-enabled conn)))
+      (clatter-test-cleanup))))
+
 (ert-deftest clatter-test-reconnect-max-attempts-nil-never-gives-up ()
   "A nil `clatter-reconnect-max-attempts' preserves the old unlimited behavior."
   (let ((conn (clatter-test-make-connection "retry" "testnick"))

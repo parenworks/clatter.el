@@ -335,7 +335,9 @@ After this many failed attempts the connection is left disconnected and
 auto-reconnect is disabled; a persistent failure (unavailable credentials,
 a SASL-required server, a dead host) then stops looping instead of
 retrying forever.  Nil means never give up (the historical behavior).
-Reconnect manually with `clatter-connect' once the underlying problem is fixed."
+Reconnect manually with `clatter-connect' once the underlying problem is
+fixed; a manual connect resets the cycle and starts a fresh attempt
+sequence, so it always works even right after a give-up."
   :type '(choice (const :tag "Never give up" nil)
                  (integer :tag "Max attempts"))
   :group 'clatter)
