@@ -491,9 +491,9 @@ Enable it per buffer with =/suppress noise=, turn it off with
 where you want it (it is most useful on busy channels like =#emacs=). The ratios
 build up as messages arrive, so the filter gets more accurate the longer a
 channel stays open.  When a hidden nick later sends their first message,
-their most recent join line is revealed retroactively (still honoring
-explicit =/suppress=, ignores, and fools), so you can see whether they
-just joined or have been lurking.
+their most recent join or away/back line is revealed retroactively (still
+honoring explicit =/suppress=, ignores, and fools), so you can see
+whether they just joined or have been lurking.
 
 | Variable                | Default                    | Description                                                      |
 |-------------------------+----------------------------+------------------------------------------------------------------|

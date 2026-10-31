@@ -1796,7 +1796,7 @@ always showing fool messages."
       (should (memq 'noise buffer-invisibility-spec)))))
 
 (defun clatter-test--smart-join-pos (nick)
-  "Return the buffer position of NICK's smart-tagged join line, or nil."
+  "Return the position of NICK's latest smart-tagged line, or nil."
   (cl-loop for i from (point-min) below (point-max)
            when (equal (get-text-property i 'clatter-smart-nick) nick)
            return i))
@@ -1864,6 +1864,28 @@ The lurking nick's hidden join in the same group stays hidden."
             (should-not (memq 'noise (get-text-property newbie 'invisible)))
             (should (memq 'noise (get-text-property lurker 'invisible)))
             (should (invisible-p lurker))))))))
+
+(ert-deftest clatter-test-smart-reveal-away-on-first-message ()
+  "A first-ever message reveals the away/back line smart filtering hid.
+For a nick who joined before the buffer existed, their back line is the
+only presence context; it must appear when they first talk."
+  (clatter-test-with-ui-connection conn
+    (let* ((buf (clatter-get-or-create-buffer "testnet" "#chan" 'channel)))
+      (clatter-ui-setup-buffer buf)
+      ;; Channel member goes away: never talked, so the line is hidden.
+      (clatter-nick-add buf "lurker")
+      (clatter-ui--on-away conn '("lurker" nil nil) "gone fishing")
+      (with-current-buffer buf
+        (let ((pos (clatter-test--smart-join-pos "lurker")))
+          (should pos)
+          (should (memq 'noise (get-text-property pos 'invisible)))))
+      ;; First message: the away line reveals.
+      (clatter-ui--on-privmsg conn '("lurker" nil nil) "#chan" "hello" nil)
+      (with-current-buffer buf
+        (let ((pos (clatter-test--smart-join-pos "lurker")))
+          (should pos)
+          (should-not (memq 'noise (get-text-property pos 'invisible)))
+          (should-not (invisible-p pos)))))))
 
 ;; --- Compact system messages ---
 

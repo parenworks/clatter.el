@@ -3081,7 +3081,8 @@ the buffer margin-width variables."
                         (listp (buffer-local-value 'buffer-invisibility-spec buf))
                         (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
                         (clatter-smart-eval buf sender-nick 'away)
-                        '(noise)))))))))
+                        '(noise)))
+           (downcase sender-nick)))))))
 
 (defun clatter-ui--on-mode (conn target setter modes)
   "Show SETTER applying MODES on TARGET on CONN."
