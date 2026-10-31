@@ -64,5 +64,42 @@ between states based on active-p, then SNR ratios."
       (should-not (clatter-smart-eval (current-buffer) "alice_" 'part))
       (should (clatter-smart-eval (current-buffer) "alice_" 'part)))))
 
+(ert-deftest clatter-test-smart-activate-hook-fires-once-on-first-signal ()
+  "The activate hook fires only on the inactive-to-active transition.
+Never-active nicks' noise must not fire it; later signals must not re-fire."
+  (let ((clatter-smart-noise '(join part))
+        (fires 0))
+    (with-temp-buffer
+      (let ((probe (lambda (&rest _) (cl-incf fires))))
+        (add-hook 'clatter-smart-activate-hook probe)
+        (unwind-protect
+            (progn
+              ;; Pure noise: never active, no fire.
+              (should (clatter-smart-eval (current-buffer) "mynick" 'join))
+              (should (zerop fires))
+              ;; First signal: fires once.
+              (clatter-smart-put (current-buffer) "mynick" 'privmsg)
+              (should (= 1 fires))
+              ;; Subsequent signals and noise: no re-fire.
+              (clatter-smart-put (current-buffer) "mynick" 'privmsg)
+              (clatter-smart-eval (current-buffer) "mynick" 'part)
+              (should (= 1 fires)))
+          (remove-hook 'clatter-smart-activate-hook probe))))))
+
+(ert-deftest clatter-test-smart-activate-hook-skips-active-nick ()
+  "A nick-change signal does not fire the hook for the already-active nick."
+  (let ((clatter-smart-noise '(join part quit nick away))
+        (fires 0))
+    (with-temp-buffer
+      (clatter-smart-put (current-buffer) "alice" 'privmsg)
+      (let ((probe (lambda (&rest _) (cl-incf fires))))
+        (add-hook 'clatter-smart-activate-hook probe)
+        (unwind-protect
+            (progn
+              (should-not (clatter-smart-eval
+                           (current-buffer) "alice" "alice_"))
+              (should (zerop fires)))
+          (remove-hook 'clatter-smart-activate-hook probe))))))
+
 (provide 'test-smart)
 ;;; test-smart.el ends here

@@ -1542,15 +1542,30 @@ identical messages sent close together each reconcile only one local line."
          (format "%s → %s" nick channel)))
       (_ (or (plist-get fields :verbose) "")))))
 
-(defun clatter--insert-system-event (buffer event fields invisible)
+(defun clatter--insert-system-event (buffer event fields invisible
+                                             &optional smart-nick)
   "Insert structured system EVENT with FIELDS into BUFFER.
-INVISIBLE carries the same message categories as `clatter-insert-system'."
+INVISIBLE carries the same message categories as `clatter-insert-system'.
+SMART-NICK, when the line carries the `noise' category, records the nick
+whose activity can retroactively reveal it (see
+`clatter-smart-activate-hook')."
   (unless (and (memq event '(join part quit))
                (clatter-fool-p
                 (plist-get fields :nick)
                 (buffer-local-value 'clatter--network buffer)))
     (if (null clatter-compact-system-messages)
-        (clatter-insert-system buffer (plist-get fields :verbose) invisible)
+        (let* ((verbose (plist-get fields :verbose))
+               (formatted (concat (clatter--format-system-prefix "***") " "
+                                  (prog1 (copy-sequence verbose)
+                                    (add-face-text-property
+                                     0 (length verbose)
+                                     'clatter-system t verbose)))))
+          (clatter--insert-message
+           buffer formatted nil
+           (and smart-nick
+                (memq 'noise (ensure-list invisible))
+                (list 'clatter-smart-nick smart-nick))
+           nil invisible))
       (let* ((symbol (or (alist-get event clatter-compact-system-symbols) "***"))
              (prefix (clatter--format-system-prefix symbol))
              (text (clatter--format-system-event event fields))
@@ -1561,24 +1576,95 @@ INVISIBLE carries the same message categories as `clatter-insert-system'."
         (if (and (eq clatter-compact-system-messages 'compact)
                  (memq event '(join part quit away back))
                  (clatter--append-compact-system-group
-                  buffer event text invisible))
+                  buffer event text invisible smart-nick))
             nil
-          (let ((group-id (and (eq clatter-compact-system-messages 'compact)
-                               (memq event '(join part quit away back))
-                               (cl-incf clatter--compact-system-group-id))))
-            (clatter--insert-message
-             buffer formatted nil
-             (and group-id (list 'clatter-compact-system-group-id group-id))
-             nil invisible)
-            (when group-id
-              (clatter--record-compact-system-group
-               buffer group-id invisible))))))))
+            (let* ((group-id (and (eq clatter-compact-system-messages 'compact)
+                                  (memq event '(join part quit away back))
+                                  (cl-incf clatter--compact-system-group-id)))
+                   (smart-props (and smart-nick
+                                      (memq 'noise (ensure-list invisible))
+                                      (list 'clatter-smart-nick smart-nick)))
+                   (msg-props (if smart-props
+                                  (append (and group-id
+                                               (list 'clatter-compact-system-group-id
+                                                     group-id))
+                                          smart-props)
+                                (and group-id
+                                     (list 'clatter-compact-system-group-id
+                                           group-id)))))
+              (clatter--insert-message
+               buffer formatted nil msg-props nil invisible)
+              (when group-id
+                (clatter--record-compact-system-group
+                 buffer group-id invisible))))))))
+
 
 (defun clatter--compact-system-visibility (invisible)
   "Return grouping visibility from event INVISIBLE categories."
   (seq-remove (lambda (category)
                 (memq category '(join part quit away back)))
               (ensure-list invisible)))
+
+(defun clatter--smart-reveal-nick (buf nick)
+  "Reveal NICK's most recent smart-hidden join line in BUF.
+Smart filtering hides a join at insert time because its nick has never
+talked; when the nick then sends their first message, the hidden join is
+the context for it (just joined vs. long-time lurker).  Only the `noise'
+category is stripped: explicit `/suppress join', mutes, and fools stay."
+  (when (buffer-live-p buf)
+    (with-current-buffer buf
+      (save-excursion
+        (save-restriction
+          (widen)
+          (goto-char (point-max))
+          ;; Walk back over property runs to the most recent run tagged
+          ;; with this nick.  (Text-property search helpers compare with
+          ;; eq, useless for strings, so walk manually.)
+          (catch 'found
+            (while (not (bobp))
+              (goto-char (previous-single-property-change
+                          (point) 'clatter-smart-nick nil (point-min)))
+              (let ((owner (get-text-property (point) 'clatter-smart-nick)))
+                (when (and (equal owner nick)
+                           (memq 'noise (ensure-list
+                                         (get-text-property
+                                          (point) 'invisible))))
+                  ;; Found: strip only the smart `noise' category.
+                  (let ((line-end (line-end-position))
+                        (inhibit-read-only t)
+                        (buffer-undo-list t))
+                    (clatter--remove-invisible-category
+                     (point) line-end 'noise)
+                    ;; A divider row opened by this join carries the same
+                    ;; categories and hides with it; reveal that too.
+                    (when (and (> (point) (point-min))
+                               (save-excursion
+                                 (forward-line -1)
+                                 (get-text-property (point)
+                                                    'clatter-timestamp-divider)))
+                      (clatter--remove-invisible-category
+                       (line-beginning-position 0)
+                       (line-end-position 0) 'noise))
+                    (dolist (ov (overlays-in (point) (min (1+ line-end)
+                                                          (point-max))))
+                      (when (overlay-get ov 'clatter-timestamp)
+                        (overlay-put ov 'invisible
+                                     (remq 'noise
+                                           (overlay-get ov 'invisible)))))
+                    (clatter--refresh-compact-system-layout))
+                  (throw 'found t))))))))))
+
+(defun clatter--remove-invisible-category (start end category)
+  "Remove CATEGORY from the `invisible' property between START and END.
+Overlay-free text only; nil (fully visible) stays nil."
+  (let ((pos start))
+    (while (< pos end)
+      (let ((next (next-single-property-change pos 'invisible nil end))
+            (cur (get-text-property pos 'invisible)))
+        (when cur
+          (put-text-property pos (or next end) 'invisible
+                             (remq category cur)))
+        (setq pos (or next end))))))
 
 (defun clatter--refresh-compact-system-layout ()
   "Refresh separators and timestamps in compact system groups.
@@ -1731,10 +1817,12 @@ shared layout coherent when `buffer-invisibility-spec' changes, notably when
                                  (marker-position
                                   clatter--messages-marker)))))))))))
 
-(defun clatter--append-compact-system-group (buffer event text invisible)
+(defun clatter--append-compact-system-group (buffer event text invisible
+                                                   &optional smart-nick)
   "Append TEXT to BUFFER's compatible compact EVENT group.
 Return non-nil when the event was grouped.  Each action retains its own
-INVISIBLE categories so smart-hidden and visible actions can share a group."
+INVISIBLE categories so smart-hidden and visible actions can share a group.
+SMART-NICK tags the appended event for retroactive reveal."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
       (let* ((group clatter--compact-system-group)
@@ -1772,7 +1860,11 @@ INVISIBLE categories so smart-hidden and visible actions can share a group."
                                  'clatter-compact-system-event t)
                      (propertize text
                                  'invisible invisible
-                                 'clatter-compact-system-event t))
+                                 'clatter-compact-system-event t
+                                 'clatter-smart-nick
+                                 (and smart-nick
+                                      (memq 'noise (ensure-list invisible))
+                                      smart-nick)))
                     (add-text-properties
                      start (point)
                      (list 'face 'clatter-system
@@ -2779,7 +2871,8 @@ the buffer margin-width variables."
                     (listp (buffer-local-value 'buffer-invisibility-spec buf))
                     (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
                     (clatter-smart-eval buf sender-nick 'join)
-                    '(noise)))))))
+                    '(noise)))
+       (downcase sender-nick)))))
 
 (defun clatter-ui--on-part (conn sender channel message)
   "Show SENDER leaving CHANNEL on CONN with optional MESSAGE."
@@ -3720,6 +3813,9 @@ Requires the server to support the message-tags capability."
   (add-hook 'clatter-typing-hook #'clatter-ui--on-typing)
   (add-hook 'clatter-mode-hook #'clatter-ui--setup-eldoc)
   (add-hook 'clatter-mode-hook #'clatter-input-formatting-mode)
+  ;; Retroactive smart reveal: a nick's first-ever message reveals the
+  ;; join that smart filtering hid, so arrival context is not lost.
+  (add-hook 'clatter-smart-activate-hook #'clatter--smart-reveal-nick)
   ;; Key bindings for input
   (define-key clatter-mode-map (kbd "RET") #'clatter-send-input)
   (define-key clatter-mode-map (kbd "TAB") #'clatter-tab)

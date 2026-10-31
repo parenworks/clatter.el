@@ -1795,6 +1795,76 @@ always showing fool messages."
       (clatter-ui-setup-buffer (current-buffer))
       (should (memq 'noise buffer-invisibility-spec)))))
 
+(defun clatter-test--smart-join-pos (nick)
+  "Return the buffer position of NICK's smart-tagged join line, or nil."
+  (cl-loop for i from (point-min) below (point-max)
+           when (equal (get-text-property i 'clatter-smart-nick) nick)
+           return i))
+
+(ert-deftest clatter-test-smart-reveal-join-on-first-message ()
+  "A first-ever message reveals the join smart filtering had hidden.
+The join context (just joined vs. long-time lurker) must not be lost."
+  (clatter-test-with-ui-connection conn
+    (let* ((buf (clatter-get-or-create-buffer "testnet" "#chan" 'channel)))
+      (clatter-ui-setup-buffer buf)
+      ;; Newcomer joins: never talked, so smart filtering hides the join.
+      (clatter-ui--on-join conn '("newbie" nil nil) "#chan" nil nil)
+      (with-current-buffer buf
+        (let ((pos (clatter-test--smart-join-pos "newbie")))
+          (should pos)
+          (should (memq 'noise (get-text-property pos 'invisible)))
+          (should (invisible-p pos))))
+      ;; First message: activate hook reveals the join.
+      (clatter-ui--on-privmsg conn '("newbie" nil nil) "#chan" "hello" nil)
+      (with-current-buffer buf
+        (let ((pos (clatter-test--smart-join-pos "newbie")))
+          (should pos)
+          (should-not (memq 'noise (get-text-property pos 'invisible)))
+          (should-not (invisible-p pos))))
+      ;; Later messages change nothing.
+      (clatter-ui--on-privmsg conn '("newbie" nil nil) "#chan" "again" nil)
+      (with-current-buffer buf
+        (should-not (memq 'noise
+                          (get-text-property
+                           (clatter-test--smart-join-pos "newbie")
+                           'invisible)))))))
+
+(ert-deftest clatter-test-smart-reveal-respects-explicit-suppression ()
+  "An explicitly suppressed join stays hidden when the nick becomes active.
+Only the smart `noise' category is stripped; user suppression is final."
+  (clatter-test-with-ui-connection conn
+    (let* ((buf (clatter-get-or-create-buffer "testnet" "#chan" 'channel)))
+      (clatter-ui-setup-buffer buf)
+      (with-current-buffer buf
+        (add-to-invisibility-spec 'join))
+      (clatter-ui--on-join conn '("newbie" nil nil) "#chan" nil nil)
+      (clatter-ui--on-privmsg conn '("newbie" nil nil) "#chan" "hello" nil)
+      (with-current-buffer buf
+        (let ((pos (clatter-test--smart-join-pos "newbie")))
+          (should pos)
+          (should (memq 'join (get-text-property pos 'invisible)))
+          ;; noise was stripped, but the explicit join suppression still hides it.
+          (should (invisible-p pos)))))))
+
+(ert-deftest clatter-test-smart-reveal-compact-group-partial ()
+  "In a compact group, activation reveals only that nick's event.
+The lurking nick's hidden join in the same group stays hidden."
+  (let ((clatter-compact-system-messages 'compact))
+    (clatter-test-with-ui-connection conn
+      (let* ((buf (clatter-get-or-create-buffer "testnet" "#chan" 'channel)))
+        (clatter-ui-setup-buffer buf)
+        (clatter-ui--on-join conn '("lurker" nil nil) "#chan" nil nil)
+        (clatter-ui--on-join conn '("newbie" nil nil) "#chan" nil nil)
+        (clatter-ui--on-privmsg conn '("newbie" nil nil) "#chan" "hi" nil)
+        (with-current-buffer buf
+          (let ((newbie (clatter-test--smart-join-pos "newbie"))
+                (lurker (clatter-test--smart-join-pos "lurker")))
+            (should newbie)
+            (should lurker)
+            (should-not (memq 'noise (get-text-property newbie 'invisible)))
+            (should (memq 'noise (get-text-property lurker 'invisible)))
+            (should (invisible-p lurker))))))))
+
 ;; --- Compact system messages ---
 
 (defun clatter-test--visible-text (start end)

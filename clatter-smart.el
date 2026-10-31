@@ -11,7 +11,9 @@
 ;; accumulates a count of signal messages (for example PRIVMSG) versus
 ;; noise messages (for example JOIN, PART, QUIT).  When a nick's
 ;; signal-to-noise ratio falls below `clatter-smart-threshold', its
-;; noisy events are hidden via the buffer invisibility spec.
+;; noisy events are hidden via the buffer invisibility spec.  When a
+;; nick produces its first signal, `clatter-smart-activate-hook' runs
+;; so the UI can retroactively reveal the noise it had hidden.
 
 ;;; Code:
 
@@ -45,6 +47,11 @@ settings continue to be honored independently."
 Each value is a list (ACTIVE-P SIGNAL-COUNT NOISE-COUNT LAST-SIGNAL)
 where LAST-SIGNAL is the float time of the nick's most recent
 non-noise event.")
+
+(defvar clatter-smart-activate-hook nil
+  "Hook run when NICK becomes active (first ever signal) in BUF.
+Called with (BUF NICK).  Lets the UI retroactively reveal the join (and
+other presence) lines smart filtering had hidden for that nick.")
 
 (defun clatter-smart-on (buf)
   "Get smart filter data for BUF."
@@ -96,6 +103,11 @@ it is stored as the nick's last signal for non-noise events."
     (unless is-noise
       (setq last-signal (float-time (or time (current-time)))))
     (puthash nick (list activep signal-count noise-count last-signal) data)
+    ;; First-ever signal: the nick was previously judged pure noise (its
+    ;; join was hidden), and now becomes a participant.
+    (when (and (not is-noise)
+               (not (clatter-smart--entry-active-p entry)))
+      (run-hook-with-args 'clatter-smart-activate-hook buf nick))
     (and activep
          ;; Float division: integer division would collapse the ratio to 0 or 1
          ;; and make `clatter-smart-threshold' meaningless.
