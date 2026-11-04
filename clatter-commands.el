@@ -57,12 +57,27 @@ INPUT is the full string including the leading /."
   (when clatter--network
     (clatter-get-connection clatter--network)))
 
+(defun clatter--conn-state-label (state)
+  "Return a short label for connection STATE, for error messages."
+  (pcase state
+    (:connecting "connecting")
+    (:registering "registering")
+    (_ "disconnected")))
+
 (defun clatter--require-conn ()
-  "Get current connection or signal an error message."
-  (or (clatter--current-conn)
-      (progn
-        (clatter-insert-error (current-buffer) "Not connected")
-        nil)))
+  "Get the current usable connection or show an error and return nil.
+A connection exists across reconnect cycles, so mere presence is not
+enough: refuse commands while the session is down or mid-registration."
+  (let ((conn (clatter--current-conn)))
+    (if (and conn (eq (clatter-connection-state conn) :connected))
+        conn
+      (clatter-insert-error
+       (current-buffer)
+       (if conn
+           (format "Not connected (%s)" (clatter--conn-state-label
+                                        (clatter-connection-state conn)))
+         "Not connected"))
+      nil)))
 
 (defun clatter--remember-query-origin (conn)
   "Record the current buffer as the originator of a query command on CONN.

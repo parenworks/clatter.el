@@ -2436,15 +2436,40 @@ If the input contains multiple lines and exceeds
               (let ((trimmed (string-trim line)))
                 (when (> (length trimmed) 0)
                   (clatter--send-message trimmed)))))
-          (clatter--send-typing-done))))))
+          ;; Typing-done is a presence signal for the open session; skip it
+          ;; when nothing went out (e.g. a disconnected buffer refused the
+          ;; message), or we announce activity the server never saw.
+          (when (clatter--session-live-p)
+            (clatter--send-typing-done)))))))
+
+(defun clatter--session-live-p ()
+  "Return non-nil when the current buffer's network session is usable."
+  (when-let* ((conn (and clatter--network
+                         (clatter-get-connection clatter--network))))
+    (eq (clatter-connection-state conn) :connected)))
+
+(defun clatter--disconnected-warn ()
+  "Insert a not-connected warning in the current buffer.
+Names the buffer's network so the warning is unambiguous across
+bouncer children and multi-network setups."
+  (clatter-insert-error
+   (current-buffer)
+   (format "Not connected to %s; message not sent.  Reconnect with M-x clatter-connect."
+           (or clatter--network "this network"))))
 
 (defun clatter--send-message (text)
   "Send TEXT as a PRIVMSG to the current target."
   (let* ((network clatter--network)
          (target clatter--target)
          (conn (clatter-get-connection network)))
-    (when (and conn target (not (string= target "*server*")))
-      (clatter-ui--send-privmsg conn target text 'privmsg (current-buffer)))))
+    (cond
+     ((not (and conn target (not (string= target "*server*")))))
+     ;; Warn instead of silently dropping the line: the connection struct
+     ;; survives disconnects, so without this the send vanishes.
+     ((not (eq (clatter-connection-state conn) :connected))
+      (clatter--disconnected-warn))
+     (t
+      (clatter-ui--send-privmsg conn target text 'privmsg (current-buffer))))))
 
 (defun clatter--handle-command (input)
   "Parse and execute INPUT as a /command."
@@ -2586,7 +2611,7 @@ connected (the common case) or absent."
                            'face 'clatter-error)))
             ((clatter-connection-reconnect-enabled conn)
              (propertize "(reconnecting)" 'face 'clatter-error))
-            (t (propertize "(off)" 'face 'clatter-error)))))))))
+            (t (propertize "(disconnected)" 'face 'clatter-error)))))))))
 
 (defun clatter--mode-line-string ()
   "Generate mode-line string for current clatter buffer."

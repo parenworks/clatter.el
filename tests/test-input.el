@@ -1117,6 +1117,58 @@ inserts leak hundreds of MB."
         (clatter--flyspell-prune-changes)
         (should (equal flyspell-changes (list input-record)))))))
 
+;; --- Disconnected buffers ---
+
+(ert-deftest clatter-send-while-disconnected-warns-and-drops ()
+  "Sending a plain message in a disconnected buffer inserts a warning
+and sends nothing to the server."
+  (with-temp-buffer
+    (clatter-mode)
+    (setq-local clatter--network "testnet")
+    (setq-local clatter--target "#test")
+    (let ((conn (clatter-test-make-connection "testnet" "alice")))
+      (unwind-protect
+          (progn
+            (clatter--setup-prompt (current-buffer))
+            (setf (clatter-connection-state conn) :disconnected)
+            (goto-char clatter--input-marker)
+            (insert "are you there?")
+            (let (errors)
+              (cl-letf (((symbol-function 'clatter-insert-error)
+                         (lambda (_buf text) (push text errors))))
+                (clatter-test-with-mock-send
+                 (clatter-send-input)
+                 (should (null clatter-test--sent-lines))))
+              (should (string-match-p "Not connected to testnet"
+                                      (car errors)))))
+        (remhash (clatter-connection-network-id conn)
+                 clatter-connections)))))
+
+(ert-deftest clatter-require-conn-rejects-disconnected ()
+  "`clatter--require-conn' refuses a down session, naming the state."
+  (with-temp-buffer
+    (clatter-mode)
+    (setq-local clatter--network "testnet")
+    (let ((conn (clatter-test-make-connection "testnet" "alice")))
+      (unwind-protect
+          (progn
+            (setf (clatter-connection-state conn) :disconnected)
+            (let (errors)
+              (cl-letf (((symbol-function 'clatter-insert-error)
+                         (lambda (_buf text) (push text errors))))
+                (should-not (clatter--require-conn))
+                (should (equal (car errors)
+                               "Not connected (disconnected)"))))
+            (setf (clatter-connection-state conn) :connecting)
+            (let (errors)
+              (cl-letf (((symbol-function 'clatter-insert-error)
+                         (lambda (_buf text) (push text errors))))
+                (should-not (clatter--require-conn))
+                (should (equal (car errors)
+                               "Not connected (connecting)")))))
+        (remhash (clatter-connection-network-id conn)
+                 clatter-connections)))))
+
 (provide 'test-input)
 
 ;;; test-input.el ends here
