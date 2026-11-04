@@ -328,5 +328,81 @@ still resolves the right password."
               (should (string-match-p "\x00mynick\x00secret" decoded))))
         (delete-process proc)))))
 
+
+;; --- Control disconnect tears down children ---
+
+(ert-deftest clatter-soju-test-explicit-control-disconnect-kills-children ()
+  "An explicit control QUIT disconnects its live children too.
+A control disconnect surfacing a `Disconnected...' reason takes the
+whole bouncer session down; leaving children connected is the reported
+`clatter-disconnect does nothing' bug."
+  (clatter-soju-test--reset)
+  (let (disconnected)
+    (cl-letf (((symbol-function 'clatter-disconnect)
+               (lambda (network-id &rest _)
+                 (push network-id disconnected))))
+      (let ((conn (clatter-test-make-connection "soju" "me"))
+            (clatter-connections
+             (let ((table (make-hash-table :test 'equal)))
+               (puthash "libera" (clatter-test-make-connection "libera" "t")
+                        table)
+               table)))
+        (setf (clatter-connection-process conn)
+              (make-pipe-process :name "soju-ctrl" :noquery t))
+        (clatter-soju--on-bouncer conn "NETWORK"
+                                  '("42" "name=libera;state=connected"))
+        (puthash "42" "libera"
+                 (plist-get (gethash "soju" clatter-soju--controls) :children))
+        (let ((clatter-disconnect-hook
+               (list #'clatter-soju--on-disconnect)))
+          (cl-letf (((symbol-function 'clatter-soju--child-live-p)
+                     (lambda (_) t)))
+            (run-hook-with-args 'clatter-disconnect-hook
+                                "soju" "Disconnected by user")))
+        (delete-process (clatter-connection-process conn))))
+    (should (equal disconnected '("libera")))))
+
+(ert-deftest clatter-soju-test-transient-control-drop-spares-children ()
+  "A server-side control drop (non-Disconnected reason) leaves children.
+Children are independent connections; the control's reconnect fan-out
+re-spawns only dead ones."
+  (clatter-soju-test--reset)
+  (let (disconnected)
+    (cl-letf (((symbol-function 'clatter-disconnect)
+               (lambda (network-id &rest _)
+                 (push network-id disconnected))))
+      (let ((conn (clatter-test-make-connection "soju" "me")))
+        (setf (clatter-connection-process conn)
+              (make-pipe-process :name "soju-ctrl2" :noquery t))
+        (clatter-soju--on-bouncer conn "NETWORK"
+                                  '("42" "name=libera;state=connected"))
+        (puthash "42" "libera"
+                 (plist-get (gethash "soju" clatter-soju--controls) :children))
+        (let ((clatter-disconnect-hook
+               (list #'clatter-soju--on-disconnect)))
+          (cl-letf (((symbol-function 'clatter-soju--child-live-p)
+                     (lambda (_) t)))
+            ;; Server-side control drop: children stay.
+            (run-hook-with-args 'clatter-disconnect-hook
+                                "soju" "Connection closed by remote peer")
+            ;; A child's own explicit disconnect is not a control teardown.
+            (run-hook-with-args 'clatter-disconnect-hook
+                                "libera" "Disconnected by user")))
+        (delete-process (clatter-connection-process conn))))
+    (should-not disconnected)))
+
+(ert-deftest clatter-soju-test-enable-registers-disconnect-hook ()
+  "`clatter-soju-enable' installs the teardown hook; disable removes it."
+  (unwind-protect
+      (progn
+        (clatter-soju-disable)
+        (should-not (memq #'clatter-soju--on-disconnect
+                         (default-value 'clatter-disconnect-hook)))
+        (clatter-soju-enable)
+        (should (memq #'clatter-soju--on-disconnect
+                      (default-value 'clatter-disconnect-hook))))
+    (clatter-soju-disable)))
+
 (provide 'test-soju)
+
 ;;; test-soju.el ends here

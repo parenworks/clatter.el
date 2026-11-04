@@ -186,17 +186,38 @@ cancels any pending reconnect, so re-spawning a dead child is safe."
   (when (string-equal batch-type "soju.im/bouncer-networks")
     (clatter-soju--fan-out conn)))
 
+(defun clatter-soju--children-of (network-id)
+  "Return the child network-ids spawned by control NETWORK-ID."
+  (when-let* ((state (gethash network-id clatter-soju--controls)))
+    (hash-table-values (plist-get state :children))))
+
+(defun clatter-soju--on-disconnect (network-id reason)
+  "Disconnect NETWORK-ID's children after an explicit control disconnect.
+A user-initiated control QUIT takes the whole bouncer session down, so
+its fanned-out children must go too.  Transient control drops (server
+close, half-open kill) leave live children alone: they are independent
+connections, and the control's reconnect fan-out re-spawns only dead
+ones.  REASON is the disconnect hook's reason string."
+  (when (and (string-prefix-p "Disconnected" reason)
+             (gethash network-id clatter-soju--controls))
+    (dolist (child (clatter-soju--children-of network-id))
+      (when (and (clatter-get-connection child)
+                 (clatter-soju--child-live-p child))
+        (clatter-disconnect child)))))
+
 ;; --- Enable / disable ---
 
 (defun clatter-soju-enable ()
   "Install the Soju bouncer-networks hooks."
   (add-hook 'clatter-bouncer-hook #'clatter-soju--on-bouncer)
-  (add-hook 'clatter-batch-complete-hook #'clatter-soju--on-batch-complete))
+  (add-hook 'clatter-batch-complete-hook #'clatter-soju--on-batch-complete)
+  (add-hook 'clatter-disconnect-hook #'clatter-soju--on-disconnect))
 
 (defun clatter-soju-disable ()
   "Remove the Soju bouncer-networks hooks."
   (remove-hook 'clatter-bouncer-hook #'clatter-soju--on-bouncer)
-  (remove-hook 'clatter-batch-complete-hook #'clatter-soju--on-batch-complete))
+  (remove-hook 'clatter-batch-complete-hook #'clatter-soju--on-batch-complete)
+  (remove-hook 'clatter-disconnect-hook #'clatter-soju--on-disconnect))
 
 (provide 'clatter-soju)
 
