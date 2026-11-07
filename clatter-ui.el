@@ -1633,9 +1633,8 @@ category is stripped: explicit `/suppress join', mutes, and fools stay."
                   (let ((line-end (line-end-position))
                         (inhibit-read-only t)
                         (buffer-undo-list t))
-                    (cl-incf line-end) ;; Include LF
                     (clatter--remove-invisible-category
-                     (point) line-end 'noise)
+                     (point) (1+ line-end) 'noise)
                     ;; A divider row opened by this join carries the same
                     ;; categories and hides with it; reveal that too.
                     (when (and (> (point) (point-min))
