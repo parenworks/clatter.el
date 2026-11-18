@@ -455,6 +455,14 @@ written - see [[*Logging][Logging]]. Also available as =M-x clatter-search=,
 completing-read interface). With a prefix argument, =/search= prompts for a
 network filter.
 
+** Channel Leaderboard
+
+=M-x clatter-stats-leaderboard= in a channel buffer opens a leaderboard
+buffer ranking nicks by how many messages they sent. It counts the
+PRIVMSG and ACTION lines currently in the buffer (backlog included),
+case-insensitively per nick, and shows each nick's last-seen time.
+Load more history with =/more= first for fuller statistics.
+
 ** Moderation and Filtering
 
 | Command              | Description                                                   |

@@ -257,6 +257,7 @@ Every optional extra enabled at once, as a starting point to trim down:
 | Inline / divider timestamp sides, mark interval       | =clatter-ui=           | =clatter-timestamp-side=, =clatter-timestamp-interval= |
 | Channel logging to file, daily rotation              | =clatter-log=          | =clatter-log-enable= (off)                    |
 | Full-text search across logs                         | =clatter-search=       | =/search= (requires logging)                  |
+| Per-channel message leaderboard (nick talk stats)    | =clatter-stats=        | =clatter-stats-leaderboard=                   |
 | URL title preview                                    | =clatter-url-preview=  | =clatter-url-preview-enable= (off)            |
 | Inline image preview (GUI frames)                    | =clatter-image=        | =clatter-image-enable= (off)                  |
 | Raw protocol inspector                               | =clatter-rawlog=       | =clatter-rawlog-enabled= (off)                |

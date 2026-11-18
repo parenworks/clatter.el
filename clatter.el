@@ -66,6 +66,7 @@
 (require 'clatter-feed)
 (require 'clatter-evil)
 (require 'clatter-soju)
+(require 'clatter-stats)
 
 ;; --- Autoload entry points ---
 
